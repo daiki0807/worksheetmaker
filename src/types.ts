@@ -30,6 +30,8 @@ export interface BaseBlock {
   zIndex: number;
   fontFamily?: string;
   selected?: boolean;
+  isLocked?: boolean;
+  groupId?: string;
 }
 
 export interface TitleBlock extends BaseBlock {
@@ -74,6 +76,7 @@ export interface TableBlock extends BaseBlock {
   headerBackground: string;
   borderWidth: number;
   cellTexts: string[][];
+  rowHeights?: number[];
 }
 
 export interface LineBlock extends BaseBlock {

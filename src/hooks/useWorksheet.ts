@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import type { WorksheetData, WorksheetBlock, PaperSettings, BlockType } from '../types';
+import type { WorksheetData, WorksheetBlock, PaperSettings, BlockType, TableBlock } from '../types';
 
 const STORAGE_KEY = 'worksheet-maker:data:v2';
 
@@ -133,6 +133,7 @@ export const useWorksheet = () => {
           width: 400, height: 300, rows: 3, cols: 3,
           headerBackground: '#f3f4f6', borderWidth: 1,
           cellTexts: Array(3).fill(null).map(() => Array(3).fill('')),
+          rowHeights: [100, 100, 100],
         };
         break;
       case 'line':
@@ -190,7 +191,30 @@ export const useWorksheet = () => {
   const updateBlock = (id: string, updates: Partial<WorksheetBlock>) => {
     setData(prev => ({
       ...prev,
-      blocks: prev.blocks.map(b => b.id === id ? { ...b, ...updates } as WorksheetBlock : b),
+      blocks: prev.blocks.map(b => {
+        if (b.id === id) {
+          const merged = { ...b, ...updates } as WorksheetBlock;
+          // テーブルブロックで高さが更新され、かつ rowHeights が updates に含まれていない場合
+          if (merged.type === 'table' && updates.height !== undefined && updates.height !== b.height && !('rowHeights' in updates)) {
+            const table = b as TableBlock;
+            const oldHeight = table.height;
+            const newHeight = updates.height;
+            const currentHeights = table.rowHeights || Array(table.rows).fill(Math.round(oldHeight / table.rows));
+            if (oldHeight > 0) {
+              const ratio = newHeight / oldHeight;
+              let newRowHeights = currentHeights.map(h => Math.round(h * ratio));
+              const sum = newRowHeights.reduce((s, val) => s + val, 0);
+              const diff = newHeight - sum;
+              if (newRowHeights.length > 0) {
+                newRowHeights[newRowHeights.length - 1] += diff;
+              }
+              (merged as TableBlock).rowHeights = newRowHeights;
+            }
+          }
+          return merged;
+        }
+        return b;
+      }),
     }));
   };
 
@@ -200,20 +224,47 @@ export const useWorksheet = () => {
   };
 
   const deleteBlocks = (ids: string[]) => {
-    setData(prev => ({ ...prev, blocks: prev.blocks.filter(b => !ids.includes(b.id)) }));
-    setSelectedIds(prev => prev.filter(id => !ids.includes(id)));
+    setData(prev => ({
+      ...prev,
+      blocks: prev.blocks.filter(b => !(ids.includes(b.id) && !b.isLocked))
+    }));
+    setSelectedIds(prev => prev.filter(id => {
+      const b = data.blocks.find(x => x.id === id);
+      return b?.isLocked || false;
+    }));
   };
 
   const duplicateBlocks = (ids: string[]) => {
     let nextZIndex = Math.max(0, ...data.blocks.map(b => b.zIndex || 0));
     const newBlocks: WorksheetBlock[] = [];
     const newIds: string[] = [];
+    const groupMapping: { [oldId: string]: string } = {};
+
     ids.forEach(id => {
       const block = data.blocks.find(b => b.id === id);
       if (block) {
         const newId = uuidv4();
         nextZIndex++;
-        newBlocks.push({ ...block, id: newId, x: block.x + 20, y: block.y + 20, zIndex: nextZIndex } as WorksheetBlock);
+
+        let newGroupId = block.groupId;
+        if (block.groupId) {
+          if (!groupMapping[block.groupId]) {
+            groupMapping[block.groupId] = uuidv4();
+          }
+          newGroupId = groupMapping[block.groupId];
+        }
+
+        // コピーはロック解除状態で生成
+        const { isLocked: _, ...rest } = block;
+
+        newBlocks.push({
+          ...rest,
+          id: newId,
+          x: block.x + 20,
+          y: block.y + 20,
+          zIndex: nextZIndex,
+          groupId: newGroupId
+        } as WorksheetBlock);
         newIds.push(newId);
       }
     });
@@ -225,9 +276,31 @@ export const useWorksheet = () => {
   const selectBlock = (id: string | null, multi = false) => {
     if (id === null) {
       setSelectedIds([]);
-    } else {
-      setSelectedIds(prev => multi ? (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]) : [id]);
+      return;
     }
+
+    const clickedBlock = data.blocks.find(b => b.id === id);
+    if (!clickedBlock) return;
+
+    let idsToAdd: string[] = [id];
+    if (clickedBlock.groupId) {
+      idsToAdd = data.blocks
+        .filter(b => b.groupId === clickedBlock.groupId && b.pageIndex === data.currentPage)
+        .map(b => b.id);
+    }
+
+    setSelectedIds(prev => {
+      if (multi) {
+        const hasAny = idsToAdd.some(x => prev.includes(x));
+        if (hasAny) {
+          return prev.filter(x => !idsToAdd.includes(x));
+        } else {
+          return [...prev, ...idsToAdd];
+        }
+      } else {
+        return idsToAdd;
+      }
+    });
   };
 
   const copyBlocks = (ids: string[]) => {
@@ -239,16 +312,71 @@ export const useWorksheet = () => {
     let nextZIndex = Math.max(0, ...data.blocks.map(b => b.zIndex || 0));
     const newBlocks: WorksheetBlock[] = [];
     const newIds: string[] = [];
-    
+    const groupMapping: { [oldId: string]: string } = {};
+
     clipboardRef.current.forEach(block => {
       const newId = uuidv4();
       nextZIndex++;
-      newBlocks.push({ ...block, id: newId, x: block.x + 20, y: block.y + 20, zIndex: nextZIndex } as WorksheetBlock);
+
+      let newGroupId = block.groupId;
+      if (block.groupId) {
+        if (!groupMapping[block.groupId]) {
+          groupMapping[block.groupId] = uuidv4();
+        }
+        newGroupId = groupMapping[block.groupId];
+      }
+
+      // 貼り付けはロック解除状態で生成
+      const { isLocked: _, ...rest } = block;
+
+      newBlocks.push({
+        ...rest,
+        id: newId,
+        x: block.x + 20,
+        y: block.y + 20,
+        zIndex: nextZIndex,
+        groupId: newGroupId
+      } as WorksheetBlock);
       newIds.push(newId);
     });
-    
+
     setData(prev => ({ ...prev, blocks: [...prev.blocks, ...newBlocks] }));
     setSelectedIds(newIds);
+  };
+
+  const groupBlocks = (ids: string[]) => {
+    if (ids.length <= 1) return;
+    const newGroupId = uuidv4();
+    setData(prev => {
+      const blocks = prev.blocks.map(b => {
+        if (ids.includes(b.id)) {
+          return { ...b, groupId: newGroupId } as WorksheetBlock;
+        }
+        return b;
+      });
+      return { ...prev, blocks };
+    });
+  };
+
+  const ungroupBlocks = (ids: string[]) => {
+    setData(prev => {
+      const groupIdsToClear = new Set<string>();
+      prev.blocks.forEach(b => {
+        if (ids.includes(b.id) && b.groupId) {
+          groupIdsToClear.add(b.groupId);
+        }
+      });
+      if (groupIdsToClear.size === 0) return prev;
+      const blocks = prev.blocks.map(b => {
+        if (b.groupId && groupIdsToClear.has(b.groupId)) {
+          const updated = { ...b };
+          delete updated.groupId;
+          return updated as WorksheetBlock;
+        }
+        return b;
+      });
+      return { ...prev, blocks };
+    });
   };
 
   const changeZIndex = (ids: string[], direction: 'front' | 'back' | 'forward' | 'backward') => {
@@ -423,5 +551,7 @@ export const useWorksheet = () => {
     importJSON,
     clearAll,
     loadTemplate,
+    groupBlocks,
+    ungroupBlocks,
   };
 };

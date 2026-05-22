@@ -14,10 +14,18 @@ interface WorksheetBlockItemProps {
   onDuplicate: () => void;
   scale?: number;
   gridSnap?: number;
+  onDragStartCustom?: (id: string) => void;
+  onDragCustom?: (id: string, x: number, y: number, w: number, h: number) => void;
+  onDragStopCustom?: (id: string, x: number, y: number) => void;
+  onResizeStartCustom?: (id: string) => void;
+  onResizeCustom?: (id: string, x: number, y: number, w: number, h: number) => void;
+  onResizeStopCustom?: (id: string, x: number, y: number, w: number, h: number) => void;
 }
 
 const WorksheetBlockItem: React.FC<WorksheetBlockItemProps> = ({
   block, isSelected, onSelect, onUpdate, onDelete, onDuplicate, scale = 1, gridSnap = 1,
+  onDragStartCustom, onDragCustom, onDragStopCustom,
+  onResizeStartCustom, onResizeCustom, onResizeStopCustom,
 }) => {
 
   const baseFont = block.fontFamily || '"Yu Mincho", "MS Mincho", serif';
@@ -146,7 +154,7 @@ const WorksheetBlockItem: React.FC<WorksheetBlockItemProps> = ({
             border: '1px solid black',
             display: 'flex',
             fontFamily: baseFont,
-            flexDirection: isVertical ? 'row' : 'column',
+            flexDirection: isVertical ? 'row-reverse' : 'column',
           }}>
             <div style={{
               padding: '8px',
@@ -172,21 +180,25 @@ const WorksheetBlockItem: React.FC<WorksheetBlockItemProps> = ({
             fontFamily: baseFont,
           }}>
             <tbody>
-              {Array.from({ length: block.rows }).map((_, r) => (
-                <tr key={r}>
-                  {Array.from({ length: block.cols }).map((_, c) => (
-                    <td key={c} style={{
-                      border: `${block.borderWidth}px solid black`,
-                      backgroundColor: r === 0 ? block.headerBackground : 'transparent',
-                      textAlign: 'center', verticalAlign: 'middle',
-                      fontWeight: r === 0 ? 'bold' : 'normal',
-                      padding: '4px',
-                    }}>
-                      {renderTextWithFurigana(block.cellTexts[r]?.[c] || '')}
-                    </td>
-                  ))}
-                </tr>
-              ))}
+              {Array.from({ length: block.rows }).map((_, r) => {
+                const rowHeights = block.rowHeights || Array(block.rows).fill(Math.round(block.height / block.rows));
+                const rowHeight = rowHeights[r] || 80;
+                return (
+                  <tr key={r} style={{ height: `${rowHeight}px` }}>
+                    {Array.from({ length: block.cols }).map((_, c) => (
+                      <td key={c} style={{
+                        border: `${block.borderWidth}px solid black`,
+                        backgroundColor: r === 0 ? block.headerBackground : 'transparent',
+                        textAlign: 'center', verticalAlign: 'middle',
+                        fontWeight: r === 0 ? 'bold' : 'normal',
+                        padding: '4px',
+                      }}>
+                        {renderTextWithFurigana(block.cellTexts[r]?.[c] || '')}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         );
@@ -277,32 +289,55 @@ const WorksheetBlockItem: React.FC<WorksheetBlockItemProps> = ({
       case 'image': {
         if (!block.src) {
           return (
-            <label style={{
+            <div style={{
               width: '100%', height: '100%',
-              border: '2px dashed #94a3b8',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              cursor: 'pointer', background: '#f9fafb', fontSize: '12px', color: '#64748b',
-            }}
-              onPointerDown={e => e.stopPropagation()}
-            >
-              画像をクリックして選択
-              <input
-                type="file"
-                accept="image/*"
-                style={{ display: 'none' }}
-                onChange={e => {
-                  const f = e.target.files?.[0];
-                  if (!f) return;
-                  const reader = new FileReader();
-                  reader.onload = () => onUpdate({ src: String(reader.result) });
-                  reader.readAsDataURL(f);
-                }}
-              />
-            </label>
+              border: '2px dashed #cbd5e1',
+              borderRadius: '6px',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+              gap: '8px',
+              background: '#f8fafc', fontSize: '12px', color: '#64748b',
+              boxSizing: 'border-box',
+              padding: '8px',
+            }}>
+              <div style={{ fontWeight: 'bold' }}>画像ブロック</div>
+              <label style={{
+                padding: '4px 12px',
+                background: '#ffffff',
+                border: '1px solid #cbd5e1',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '11px',
+                color: '#334155',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                display: 'inline-flex',
+                alignItems: 'center',
+              }}
+                onPointerDown={e => e.stopPropagation()}
+              >
+                画像を選択
+                <input
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={e => {
+                    const f = e.target.files?.[0];
+                    if (!f) return;
+                    const reader = new FileReader();
+                    reader.onload = () => onUpdate({ src: String(reader.result) });
+                    reader.readAsDataURL(f);
+                  }}
+                />
+              </label>
+            </div>
           );
         }
         return (
-          <img src={block.src} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+          <img
+            src={block.src}
+            alt=""
+            draggable={false}
+            style={{ width: '100%', height: '100%', objectFit: 'contain', pointerEvents: 'none' }}
+          />
         );
       }
       case 'checkbox': {
@@ -410,27 +445,78 @@ const WorksheetBlockItem: React.FC<WorksheetBlockItemProps> = ({
     <Rnd
       size={{ width: block.width, height: block.height }}
       position={{ x: block.x, y: block.y }}
-      onDragStart={(e: any) => onSelect(e.shiftKey)}
-      onDragStop={(_e, d) => onUpdate({ x: d.x, y: d.y })}
-      onResizeStart={(e: any) => onSelect(e.shiftKey)}
+      disableDragging={block.isLocked}
+      enableResizing={block.isLocked ? false : undefined}
+      onDragStart={(e: any) => {
+        onSelect(e.shiftKey);
+        if (onDragStartCustom) onDragStartCustom(block.id);
+      }}
+      onDrag={(_e, d) => {
+        if (onDragCustom) onDragCustom(block.id, d.x, d.y, block.width, block.height);
+      }}
+      onDragStop={(_e, d) => {
+        if (onDragStopCustom) {
+          onDragStopCustom(block.id, d.x, d.y);
+        } else {
+          onUpdate({ x: d.x, y: d.y });
+        }
+      }}
+      onResizeStart={(e: any) => {
+        onSelect(e.shiftKey);
+        if (onResizeStartCustom) onResizeStartCustom(block.id);
+      }}
+      onResize={(_e, _dir, ref, _delta, position) => {
+        const w = parseInt(ref.style.width, 10);
+        const h = parseInt(ref.style.height, 10);
+        if (onResizeCustom) onResizeCustom(block.id, position.x, position.y, w, h);
+      }}
       onResizeStop={(_e, _dir, ref, _delta, position) => {
-        onUpdate({
-          width: parseInt(ref.style.width, 10),
-          height: parseInt(ref.style.height, 10),
-          ...position,
-        });
+        const w = parseInt(ref.style.width, 10);
+        const h = parseInt(ref.style.height, 10);
+        if (onResizeStopCustom) {
+          onResizeStopCustom(block.id, position.x, position.y, w, h);
+        } else {
+          onUpdate({
+            width: w,
+            height: h,
+            ...position,
+          });
+        }
       }}
       dragGrid={[gridSnap, gridSnap]}
       resizeGrid={[gridSnap, gridSnap]}
       bounds="parent"
       scale={scale}
-      className={isSelected ? 'rnd-selected' : ''}
+      className={`${isSelected ? 'rnd-selected' : ''} ${block.isLocked ? 'rnd-locked' : ''}`}
       style={{
-        outline: isSelected ? '2px dashed var(--accent-color)' : 'none',
+        outline: isSelected
+          ? block.isLocked
+            ? '2px solid #ef4444'
+            : '2px dashed var(--accent-color)'
+          : 'none',
         zIndex: (block.zIndex || 1) + (isSelected ? 1000 : 0),
       }}
     >
-      {isSelected && (
+      {isSelected && block.isLocked && (
+        <div className="no-print" style={{
+          position: 'absolute', top: '-28px', left: 0,
+          display: 'flex', gap: '4px', zIndex: 11,
+        }}>
+          <button
+            onClick={(e) => { e.stopPropagation(); onUpdate({ isLocked: false }); }}
+            title="ロック解除"
+            style={{
+              background: '#ef4444', border: 'none', borderRadius: '4px', cursor: 'pointer',
+              padding: '2px 8px', display: 'flex', alignItems: 'center', gap: '4px',
+              color: 'white', fontSize: '11px', fontWeight: 'bold', boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+            }}
+          >
+            <span>🔒</span> ロック解除
+          </button>
+        </div>
+      )}
+
+      {isSelected && !block.isLocked && (
         <div className="no-print" style={{
           position: 'absolute', top: '-28px', right: 0,
           display: 'flex', gap: '4px', zIndex: 11,

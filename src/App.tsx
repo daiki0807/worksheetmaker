@@ -30,21 +30,36 @@ function App() {
         e.preventDefault();
         worksheet.redo();
       } else if (meta && e.key.toLowerCase() === 'c' && worksheet.selectedIds.length > 0) {
+        // ロック関係なくコピーは可能
         worksheet.copyBlocks(worksheet.selectedIds);
       } else if (meta && e.key.toLowerCase() === 'v') {
         worksheet.pasteBlocks();
       } else if (meta && e.key.toLowerCase() === 'd' && worksheet.selectedIds.length > 0) {
         e.preventDefault();
-        worksheet.duplicateBlocks(worksheet.selectedIds);
+        // ロックされていないものだけを複製
+        const unlockedIds = worksheet.selectedIds.filter(id => {
+          const b = worksheet.data.blocks.find(x => x.id === id);
+          return !b?.isLocked;
+        });
+        if (unlockedIds.length > 0) {
+          worksheet.duplicateBlocks(unlockedIds);
+        }
       } else if (!isEditable && (e.key === 'Delete' || e.key === 'Backspace') && worksheet.selectedIds.length > 0) {
         e.preventDefault();
-        worksheet.deleteBlocks(worksheet.selectedIds);
+        // ロックされていないものだけを削除
+        const unlockedIds = worksheet.selectedIds.filter(id => {
+          const b = worksheet.data.blocks.find(x => x.id === id);
+          return !b?.isLocked;
+        });
+        if (unlockedIds.length > 0) {
+          worksheet.deleteBlocks(unlockedIds);
+        }
       } else if (!isEditable && worksheet.selectedIds.length > 0 && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
         e.preventDefault();
         const step = e.shiftKey ? 10 : 1;
         worksheet.selectedIds.forEach(id => {
           const b = worksheet.data.blocks.find(x => x.id === id);
-          if (!b) return;
+          if (!b || b.isLocked) return;
           if (e.key === 'ArrowUp') worksheet.updateBlock(b.id, { y: b.y - step });
           if (e.key === 'ArrowDown') worksheet.updateBlock(b.id, { y: b.y + step });
           if (e.key === 'ArrowLeft') worksheet.updateBlock(b.id, { x: b.x - step });
