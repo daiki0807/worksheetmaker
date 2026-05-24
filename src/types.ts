@@ -124,6 +124,10 @@ export interface ShapeBlock extends BaseBlock {
   fillColor: string;
   borderColor: string;
   borderWidth: number;
+  text?: string;
+  fontSize?: number;
+  textColor?: string;
+  writingMode?: 'horizontal-tb' | 'vertical-rl';
 }
 
 export type WorksheetBlock =

@@ -580,6 +580,17 @@ const SidebarRight: React.FC<SidebarRightProps> = ({ selectedIds, blocks, onUpda
 
           {block.type === 'shape' && (
             <>
+              <Row label="テキスト">
+                <textarea className="select-input" value={(block as any).text || ''}
+                  onChange={e => onUpdate(block.id, { text: e.target.value })}
+                  placeholder="図形の中のテキスト"
+                />
+              </Row>
+              <Row label="文字の色">
+                <input type="color" value={(block as any).textColor || '#000000'}
+                  onChange={e => onUpdate(block.id, { textColor: e.target.value })}
+                />
+              </Row>
               <Row label="図形の種類">
                 <select className="select-input" value={block.shapeType}
                   onChange={e => onUpdate(block.id, { shapeType: e.target.value as any })}>
@@ -596,7 +607,7 @@ const SidebarRight: React.FC<SidebarRightProps> = ({ selectedIds, blocks, onUpda
                 />
                 <label style={{ fontSize: '12px', marginTop: '4px' }}>
                   <input type="checkbox" checked={block.fillColor === 'transparent'}
-                    onChange={e => onUpdate(block.id, { fillColor: e.target.checked ? 'transparent' : '#ffffff' })}
+                     onChange={e => onUpdate(block.id, { fillColor: e.target.checked ? 'transparent' : '#ffffff' })}
                   /> 透明にする
                 </label>
               </Row>
@@ -606,7 +617,7 @@ const SidebarRight: React.FC<SidebarRightProps> = ({ selectedIds, blocks, onUpda
                 />
                 <label style={{ fontSize: '12px', marginTop: '4px' }}>
                   <input type="checkbox" checked={block.borderColor === 'transparent'}
-                    onChange={e => onUpdate(block.id, { borderColor: e.target.checked ? 'transparent' : '#000000' })}
+                     onChange={e => onUpdate(block.id, { borderColor: e.target.checked ? 'transparent' : '#000000' })}
                   /> なし
                 </label>
               </Row>

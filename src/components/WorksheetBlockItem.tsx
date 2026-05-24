@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Rnd } from 'react-rnd';
 import { Trash2, Copy } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
@@ -27,6 +27,31 @@ const WorksheetBlockItem: React.FC<WorksheetBlockItemProps> = ({
   onDragStartCustom, onDragCustom, onDragStopCustom,
   onResizeStartCustom, onResizeCustom, onResizeStopCustom,
 }) => {
+  // 表（Table）セルの編集状態
+  const [editingCell, setEditingCell] = useState<{ r: number; c: number } | null>(null);
+  const [editValue, setEditValue] = useState('');
+  const tableTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // 図形（Shape）のテキスト編集状態
+  const [isEditingText, setIsEditingText] = useState(false);
+  const [textValue, setTextValue] = useState('');
+  const shapeTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // 表の編集用textareaにフォーカスを当てる
+  useEffect(() => {
+    if (editingCell && tableTextareaRef.current) {
+      tableTextareaRef.current.focus();
+      tableTextareaRef.current.select();
+    }
+  }, [editingCell]);
+
+  // 図形の編集用textareaにフォーカスを当てる
+  useEffect(() => {
+    if (isEditingText && shapeTextareaRef.current) {
+      shapeTextareaRef.current.focus();
+      shapeTextareaRef.current.select();
+    }
+  }, [isEditingText]);
 
   const baseFont = block.fontFamily || '"Yu Mincho", "MS Mincho", serif';
 
@@ -171,7 +196,15 @@ const WorksheetBlockItem: React.FC<WorksheetBlockItemProps> = ({
           </div>
         );
       }
-      case 'table':
+      case 'table': {
+        const handleCellSave = (r: number, c: number, value: string) => {
+          const nextCellTexts = block.cellTexts.map((rowArr, ri) =>
+            rowArr.map((text, ci) => (ri === r && ci === c ? value : text))
+          );
+          onUpdate({ cellTexts: nextCellTexts });
+          setEditingCell(null);
+        };
+
         return (
           <table style={{
             width: '100%', height: '100%',
@@ -185,23 +218,75 @@ const WorksheetBlockItem: React.FC<WorksheetBlockItemProps> = ({
                 const rowHeight = rowHeights[r] || 80;
                 return (
                   <tr key={r} style={{ height: `${rowHeight}px` }}>
-                    {Array.from({ length: block.cols }).map((_, c) => (
-                      <td key={c} style={{
-                        border: `${block.borderWidth}px solid black`,
-                        backgroundColor: r === 0 ? block.headerBackground : 'transparent',
-                        textAlign: 'center', verticalAlign: 'middle',
-                        fontWeight: r === 0 ? 'bold' : 'normal',
-                        padding: '4px',
-                      }}>
-                        {renderTextWithFurigana(block.cellTexts[r]?.[c] || '')}
-                      </td>
-                    ))}
+                    {Array.from({ length: block.cols }).map((_, c) => {
+                      const isEditing = editingCell?.r === r && editingCell?.c === c;
+                      const cellValue = block.cellTexts[r]?.[c] || '';
+
+                      return (
+                        <td
+                          key={c}
+                          style={{
+                            border: `${block.borderWidth}px solid black`,
+                            backgroundColor: r === 0 ? block.headerBackground : 'transparent',
+                            textAlign: 'center',
+                            verticalAlign: 'middle',
+                            fontWeight: r === 0 ? 'bold' : 'normal',
+                            padding: isEditing ? '0px' : '4px',
+                            cursor: 'text',
+                            position: 'relative',
+                          }}
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            if (block.isLocked) return;
+                            setEditingCell({ r, c });
+                            setEditValue(cellValue);
+                          }}
+                        >
+                          {isEditing ? (
+                            <textarea
+                              ref={tableTextareaRef}
+                              value={editValue}
+                              onChange={(e) => setEditValue(e.target.value)}
+                              onBlur={() => handleCellSave(r, c, editValue)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && e.shiftKey) {
+                                  e.preventDefault();
+                                  handleCellSave(r, c, editValue);
+                                } else if (e.key === 'Escape') {
+                                  e.preventDefault();
+                                  setEditingCell(null);
+                                }
+                              }}
+                              onPointerDown={(e) => e.stopPropagation()}
+                              style={{
+                                width: '100%',
+                                height: '100%',
+                                border: 'none',
+                                outline: 'none',
+                                resize: 'none',
+                                background: 'transparent',
+                                boxSizing: 'border-box',
+                                padding: '6px',
+                                fontFamily: 'inherit',
+                                fontSize: 'inherit',
+                                fontWeight: 'inherit',
+                                textAlign: 'center',
+                                display: 'block',
+                              }}
+                            />
+                          ) : (
+                            renderTextWithFurigana(cellValue)
+                          )}
+                        </td>
+                      );
+                    })}
                   </tr>
                 );
               })}
             </tbody>
           </table>
         );
+      }
       case 'line': {
         const isH = block.orientation === 'horizontal';
         return (
@@ -405,7 +490,7 @@ const WorksheetBlockItem: React.FC<WorksheetBlockItemProps> = ({
       }
       case 'shape': {
         const renderSvg = (content: React.ReactNode) => (
-          <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ overflow: 'visible' }}>
+          <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ overflow: 'visible', width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, zIndex: 1 }}>
             {content}
           </svg>
         );
@@ -429,10 +514,113 @@ const WorksheetBlockItem: React.FC<WorksheetBlockItemProps> = ({
         } else if (shapeType === 'callout') {
           shapeContent = renderSvg(<path d="M 0,0 L 100,0 L 100,70 L 60,70 L 30,100 L 40,70 L 0,70 Z" {...styleProps} />);
         }
-        
+
+        const isVertical = block.writingMode === 'vertical-rl';
+        const shText = block.text || '';
+        const shFontSize = block.fontSize || 16;
+        const shTextColor = block.textColor || '#000000';
+
+        const topPad = shapeType === 'callout' ? '8px' : '12px';
+        const bottomPad = shapeType === 'callout' ? '30px' : '12px';
+        const leftPad = '12px';
+        const rightPad = '12px';
+
         return (
-          <div style={{ width: '100%', height: '100%', pointerEvents: 'none' }}>
-            {shapeContent}
+          <div 
+            style={{ 
+              width: '100%', 
+              height: '100%', 
+              position: 'relative',
+              boxSizing: 'border-box'
+            }}
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              if (block.isLocked) return;
+              setIsEditingText(true);
+              setTextValue(shText);
+            }}
+          >
+            <div style={{ pointerEvents: 'none', width: '100%', height: '100%' }}>
+              {shapeContent}
+            </div>
+            
+            <div
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                zIndex: 2,
+                boxSizing: 'border-box',
+                paddingTop: topPad,
+                paddingBottom: bottomPad,
+                paddingLeft: leftPad,
+                paddingRight: rightPad,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              {isEditingText ? (
+                <textarea
+                  ref={shapeTextareaRef}
+                  value={textValue}
+                  onChange={(e) => setTextValue(e.target.value)}
+                  onBlur={() => {
+                    onUpdate({ text: textValue });
+                    setIsEditingText(false);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && e.shiftKey) {
+                      e.preventDefault();
+                      onUpdate({ text: textValue });
+                      setIsEditingText(false);
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault();
+                      setIsEditingText(false);
+                    }
+                  }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  placeholder={block.isLocked ? '' : 'テキストを入力'}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    border: 'none',
+                    outline: 'none',
+                    resize: 'none',
+                    background: 'transparent',
+                    boxSizing: 'border-box',
+                    fontFamily: baseFont,
+                    fontSize: `${shFontSize}px`,
+                    color: shTextColor,
+                    writingMode: isVertical ? 'vertical-rl' : 'horizontal-tb',
+                    textAlign: 'center',
+                    display: 'block',
+                  }}
+                />
+              ) : (
+                <div
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontFamily: baseFont,
+                    fontSize: `${shFontSize}px`,
+                    color: shTextColor,
+                    writingMode: isVertical ? 'vertical-rl' : 'horizontal-tb',
+                    textOrientation: 'mixed',
+                    whiteSpace: 'pre-wrap',
+                    textAlign: 'center',
+                    overflow: 'hidden',
+                  }}
+                >
+                  {renderTextWithFurigana(shText)}
+                </div>
+              )}
+            </div>
           </div>
         );
       }

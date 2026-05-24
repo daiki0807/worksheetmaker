@@ -172,6 +172,7 @@ export const useWorksheet = () => {
           ...baseProps, type: 'shape',
           width: 100, height: 100,
           shapeType: 'rectangle', fillColor: 'transparent', borderColor: '#000000', borderWidth: 2,
+          text: '', fontSize: 16, textColor: '#000000', writingMode: 'horizontal-tb',
         };
         break;
       case 'qrCode':
